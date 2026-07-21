@@ -16,7 +16,19 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  // Aquí se procesarán los mensajes entrantes
-  // (por ahora solo respondemos 200 para que Meta no reintente)
-  return new NextResponse('OK', { status: 200 });
+  try {
+    // 1. Recibimos el JSON real que envía Meta
+    const body = await request.json();
+    
+    // 2. Lo imprimimos en la consola de Vercel para poder verlo
+    console.log("👉 MENSAJE RECIBIDO DE META:", JSON.stringify(body, null, 2));
+
+    // TODO: Aquí conectaremos la función de inserción a Supabase
+    // ejemplo: await guardarMensajeEnSupabase(body);
+
+    return new NextResponse('OK', { status: 200 });
+  } catch (error) {
+    console.error("❌ Error leyendo el webhook:", error);
+    return new NextResponse('Error', { status: 500 });
+  }
 }
