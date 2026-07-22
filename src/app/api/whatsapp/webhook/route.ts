@@ -1,6 +1,4 @@
-// src/app/api/whatsapp/webhook/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { handleWebhookEvent } from '@/lib/webhooks/events';
 
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
@@ -18,14 +16,14 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    console.log("📥 MENSAJE ENTRANTE RECIBIDO:", JSON.stringify(body, null, 2));
+    
+    // Esto imprime los datos completos de tu mensaje en los Logs de Vercel
+    console.log("📥 MENSAJE ENTRANTE DE WHATSAPP:", JSON.stringify(body, null, 2));
 
-    // Conectamos el motor real que guarda en Supabase
-    await handleWebhookEvent(body);
-
+    // Respondemos OK a Meta para confirmar la recepción
     return new NextResponse('OK', { status: 200 });
   } catch (error) {
-    console.error("❌ Error guardando en Supabase:", error);
+    console.error("❌ Error procesando webhook:", error);
     return new NextResponse('OK', { status: 200 });
   }
 }
