@@ -141,16 +141,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // --- 5. Guardar mensaje (sin account_id) ---
+    // --- 5. Guardar mensaje (con valores válidos según restricciones) ---
     if (conversationId) {
       const { error: msgError } = await supabase.from('messages').insert({
         conversation_id: conversationId,
         message_id: messageId,
         content_text: messageText,
-        content_type: 'text',
-        status: 'received',
-        sender_type: 'contact'
-        // account_id: accountId   ← ELIMINADO porque no existe en la tabla
+        content_type: 'text',          // ✅ permitido
+        status: 'delivered',           // ✅ permitido (o 'read')
+        sender_type: 'customer'        // ✅ permitido
+        // NOTA: NO incluir account_id porque no existe en messages
       });
 
       if (msgError) {
