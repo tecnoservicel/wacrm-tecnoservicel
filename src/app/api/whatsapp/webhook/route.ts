@@ -32,16 +32,18 @@ export async function POST(request: NextRequest) {
     if (message) {
       const phone = message.from;
       const messageText = message.text?.body || '[Mensaje multimedia]';
+      const messageId = message.id;
       const senderName = contact?.profile?.name || phone;
 
       console.log(`💬 Procesando mensaje de ${senderName} (${phone}): "${messageText}"`);
 
-      // Guardar usando la columna 'content' que espera la base de datos
+      // Inserción usando las columnas exactas de tu esquema ('content_text' y 'message_id')
       const { error } = await supabase.from('messages').insert({
-        phone_number: phone,
-        content: messageText,
-        direction: 'inbound',
-        created_at: new Date().toISOString()
+        message_id: messageId,
+        content_text: messageText,
+        content_type: 'text',
+        status: 'received',
+        sender_type: 'contact'
       });
 
       if (error) {
