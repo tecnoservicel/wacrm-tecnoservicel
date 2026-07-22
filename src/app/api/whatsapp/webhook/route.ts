@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
           phone: phone,
           name: senderName,
           user_id: defaultUserId,
-          account_id: accountId   // ← AGREGADO
+          account_id: accountId
         })
         .select('id')
         .single();
@@ -126,7 +126,7 @@ export async function POST(request: NextRequest) {
         .insert({
           contact_id: contactId,
           user_id: defaultUserId,
-          account_id: accountId,   // ← AGREGADO
+          account_id: accountId,
           status: 'open',
           last_message_text: messageText,
           last_message_at: new Date().toISOString()
@@ -141,7 +141,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // --- 5. Guardar mensaje ---
+    // --- 5. Guardar mensaje (sin account_id) ---
     if (conversationId) {
       const { error: msgError } = await supabase.from('messages').insert({
         conversation_id: conversationId,
@@ -149,8 +149,8 @@ export async function POST(request: NextRequest) {
         content_text: messageText,
         content_type: 'text',
         status: 'received',
-        sender_type: 'contact',
-        account_id: accountId   // ← AGREGADO por seguridad (si la columna existe)
+        sender_type: 'contact'
+        // account_id: accountId   ← ELIMINADO porque no existe en la tabla
       });
 
       if (msgError) {
