@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
 
       console.log(`💬 Procesando mensaje de ${senderName} (${phone}): "${messageText}"`);
 
-      // 1. Buscar o crear el contacto en la tabla 'contacts'
+      // 1. Buscar o crear el contacto (sin tocar phone_normalized)
       let contactId = null;
       const { data: existingContact } = await supabase
         .from('contacts')
@@ -52,7 +52,6 @@ export async function POST(request: NextRequest) {
           .from('contacts')
           .insert({
             phone: phone,
-            phone_normalized: phone,
             name: senderName
           })
           .select('id')
