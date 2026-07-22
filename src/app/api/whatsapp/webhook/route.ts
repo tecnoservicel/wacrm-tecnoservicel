@@ -27,31 +27,68 @@ export async function POST(request: NextRequest) {
     const changes = entry?.changes?.[0];
     const value = changes?.value;
     const message = value?.messages?.[0];
-    const contact = value?.contacts?.[0];
+    const contactInfo = value?.contacts?.[0];
 
     if (message) {
       const phone = message.from;
       const messageText = message.text?.body || '[Mensaje multimedia]';
       const messageId = message.id;
-      const senderName = contact?.profile?.name || phone;
+      const senderName = contactInfo?.profile?.name || phone;
 
       console.log(`💬 Procesando mensaje de ${senderName} (${phone}): "${messageText}"`);
 
-      // 1. Buscar si ya existe una conversación para este número
+      // 1. Buscar o crear el contacto en la tabla 'contacts'
+      let contactId = null;
+      const { data: existingContact } = await supabase
+        .from('contacts')
+        .select('id')
+        .eq('phone', phone)
+        .maybeSingle();
+
+      if (existingContact) {
+        contactId = existingContact.id;
+      } else {
+        const { data: newContact, error: contactError } = await supabase
+          .from('contacts')
+          .insert({
+            phone: phone,
+            phone_normalized: phone,
+            name: senderName
+          })
+          .select('id')
+          .single();
+
+        if (contactError) {
+          console.error("❌ Error al crear contacto:", contactError);
+        } else if (newContact) {
+          contactId = newContact.id;
+        }
+      }
+
+      if (!contactId) {
+        console.error("❌ No se pudo obtener o crear el contacto.");
+        return new NextResponse('OK', { status: 200 });
+      }
+
+      // 2. Buscar o crear la conversación en la tabla 'conversations'
       let conversationId = null;
       const { data: existingConv } = await supabase
         .from('conversations')
         .select('id')
-        .eq('phone_number', phone)
+        .eq('contact_id', contactId)
         .maybeSingle();
 
       if (existingConv) {
         conversationId = existingConv.id;
       } else {
-        // 2. Si no existe, crear la conversación automáticamente
         const { data: newConv, error: convError } = await supabase
           .from('conversations')
-          .insert({ phone_number: phone })
+          .insert({
+            contact_id: contactId,
+            status: 'open',
+            last_message_text: messageText,
+            last_message_at: new Date().toISOString()
+          })
           .select('id')
           .single();
 
@@ -62,7 +99,7 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // 3. Guardar el mensaje usando el conversation_id obtenido
+      // 3. Guardar el mensaje en la tabla 'messages'
       if (conversationId) {
         const { error: msgError } = await supabase.from('messages').insert({
           conversation_id: conversationId,
@@ -76,16 +113,23 @@ export async function POST(request: NextRequest) {
         if (msgError) {
           console.error("❌ Error al guardar el mensaje en Supabase:", msgError);
         } else {
-          console.log("✅ ¡Mensaje guardado y vinculado a la conversación con éxito!");
+          console.log("✅ ¡Mensaje guardado y sincronizado con éxito en el CRM!");
+          
+          // Actualizar el último mensaje de la conversación
+          await supabase
+            .from('conversations')
+            .update({
+              last_message_text: messageText,
+              last_message_at: new Date().toISOString()
+            })
+            .eq('id', conversationId);
         }
-      } else {
-        console.error("❌ No se pudo obtener o crear un conversation_id válido.");
       }
     }
 
     return new NextResponse('OK', { status: 200 });
   } catch (error: any) {
-    console.error("❌ Error procesando webhook:", error);
+    console.error("❌ Error general procesando webhook:", error);
     return new NextResponse('OK', { status: 200 });
   }
 }
