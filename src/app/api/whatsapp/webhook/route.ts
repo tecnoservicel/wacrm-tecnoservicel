@@ -30,7 +30,6 @@ export async function POST(request: NextRequest) {
     const contactInfo = value?.contacts?.[0];
 
     if (!message) {
-      // Si no hay mensaje, responder OK igualmente
       return new NextResponse('OK', { status: 200 });
     }
 
@@ -57,22 +56,24 @@ export async function POST(request: NextRequest) {
       return new NextResponse('OK', { status: 200 });
     }
 
-    // --- Obtener el account_id asociado al usuario ---
+    // --- Obtener el account_id desde la tabla 'profiles' usando el user_id ---
     let accountId = null;
-
-    // 1. Intentar obtener desde la tabla 'profiles' (o 'users_metadata', ajusta según tu esquema)
-    const { data: profile } = await supabase
-      .from('profiles')   // Cambia por el nombre de tu tabla de perfiles
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
       .select('account_id')
       .eq('user_id', defaultUserId)
       .maybeSingle();
 
+    if (profileError) {
+      console.error("❌ Error al obtener perfil del usuario:", profileError);
+    }
+
     if (profile?.account_id) {
       accountId = profile.account_id;
     } else {
-      // 2. Si no tiene perfil, obtener la primera cuenta disponible
+      // Fallback: si no tiene perfil, tomar la primera cuenta de la tabla accounts
       const { data: firstAccount } = await supabase
-        .from('accounts')  // Cambia por el nombre de tu tabla de cuentas
+        .from('accounts')
         .select('id')
         .limit(1)
         .maybeSingle();
@@ -80,10 +81,10 @@ export async function POST(request: NextRequest) {
       if (firstAccount?.id) {
         accountId = firstAccount.id;
       } else {
-        // 3. Si no hay cuentas, crear una por defecto
+        // Si no hay cuentas, crear una por defecto
         const { data: newAccount, error: accError } = await supabase
           .from('accounts')
-          .insert({ name: 'Cuenta por defecto' })  // Ajusta los campos necesarios
+          .insert({ name: 'Cuenta por defecto' })
           .select('id')
           .single();
 
@@ -99,6 +100,8 @@ export async function POST(request: NextRequest) {
       console.error("❌ No se pudo obtener un account_id válido.");
       return new NextResponse('OK', { status: 200 });
     }
+
+    console.log(`✅ Account ID obtenido: ${accountId}`);
 
     // --- 1. Buscar o crear el contacto ---
     let contactId = null;
@@ -117,7 +120,7 @@ export async function POST(request: NextRequest) {
           phone: phone,
           name: senderName,
           user_id: defaultUserId,
-          account_id: accountId   // ← AGREGAMOS account_id
+          account_id: accountId   // ← AHORA CON EL VALOR CORRECTO
         })
         .select('id')
         .single();
