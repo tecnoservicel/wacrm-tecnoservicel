@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// Inicializar cliente de Supabase con la llave de servicio para evitar bloqueos de seguridad (RLS)
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -37,10 +36,10 @@ export async function POST(request: NextRequest) {
 
       console.log(`💬 Procesando mensaje de ${senderName} (${phone}): "${messageText}"`);
 
-      // Guardar el mensaje directamente en la base de datos de Supabase
+      // Guardar usando la columna 'content' que espera la base de datos
       const { error } = await supabase.from('messages').insert({
         phone_number: phone,
-        body: messageText,
+        content: messageText,
         direction: 'inbound',
         created_at: new Date().toISOString()
       });
