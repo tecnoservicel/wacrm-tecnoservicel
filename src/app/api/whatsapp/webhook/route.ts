@@ -37,19 +37,49 @@ export async function POST(request: NextRequest) {
 
       console.log(`💬 Procesando mensaje de ${senderName} (${phone}): "${messageText}"`);
 
-      // Inserción usando las columnas exactas de tu esquema ('content_text' y 'message_id')
-      const { error } = await supabase.from('messages').insert({
-        message_id: messageId,
-        content_text: messageText,
-        content_type: 'text',
-        status: 'received',
-        sender_type: 'contact'
-      });
+      // 1. Buscar si ya existe una conversación para este número
+      let conversationId = null;
+      const { data: existingConv } = await supabase
+        .from('conversations')
+        .select('id')
+        .eq('phone_number', phone)
+        .maybeSingle();
 
-      if (error) {
-        console.error("❌ Error al guardar en Supabase:", error);
+      if (existingConv) {
+        conversationId = existingConv.id;
       } else {
-        console.log("✅ ¡Mensaje guardado en Supabase con éxito!");
+        // 2. Si no existe, crear la conversación automáticamente
+        const { data: newConv, error: convError } = await supabase
+          .from('conversations')
+          .insert({ phone_number: phone })
+          .select('id')
+          .single();
+
+        if (convError) {
+          console.error("❌ Error al crear conversación:", convError);
+        } else if (newConv) {
+          conversationId = newConv.id;
+        }
+      }
+
+      // 3. Guardar el mensaje usando el conversation_id obtenido
+      if (conversationId) {
+        const { error: msgError } = await supabase.from('messages').insert({
+          conversation_id: conversationId,
+          message_id: messageId,
+          content_text: messageText,
+          content_type: 'text',
+          status: 'received',
+          sender_type: 'contact'
+        });
+
+        if (msgError) {
+          console.error("❌ Error al guardar el mensaje en Supabase:", msgError);
+        } else {
+          console.log("✅ ¡Mensaje guardado y vinculado a la conversación con éxito!");
+        }
+      } else {
+        console.error("❌ No se pudo obtener o crear un conversation_id válido.");
       }
     }
 
