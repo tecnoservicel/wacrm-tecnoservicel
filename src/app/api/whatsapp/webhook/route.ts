@@ -148,7 +148,7 @@ export async function POST(request: NextRequest) {
         message_id: messageId,
         content_text: messageText,
         content_type: 'text',          // ✅ permitido
-        status: 'delivered',           // ✅ permitido (o 'read')
+        status: 'delivered',           // ✅ permitido
         sender_type: 'customer'        // ✅ permitido
         // NOTA: NO incluir account_id porque no existe en messages
       });
