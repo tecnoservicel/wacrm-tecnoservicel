@@ -37,7 +37,34 @@ export async function POST(request: NextRequest) {
 
       console.log(`💬 Procesando mensaje de ${senderName} (${phone}): "${messageText}"`);
 
-      // 1. Buscar o crear el contacto (sin tocar phone_normalized)
+      // 0. Obtener un user_id y account_id existente en la base de datos para cumplir con la restricción
+      let defaultUserId = null;
+      let defaultAccountId = null;
+
+      const { data: existingUserCheck } = await supabase
+        .from('contacts')
+        .select('user_id, account_id')
+        .not('user_id', 'is', null)
+        .limit(1)
+        .maybeSingle();
+
+      if (existingUserCheck) {
+        defaultUserId = existingUserCheck.user_id;
+        defaultAccountId = existingUserCheck.account_id;
+      } else {
+        const { data: existingConvCheck } = await supabase
+          .from('conversations')
+          .select('user_id, account_id')
+          .not('user_id', 'is', null)
+          .limit(1)
+          .maybeSingle();
+        if (existingConvCheck) {
+          defaultUserId = existingConvCheck.user_id;
+          defaultAccountId = existingConvCheck.account_id;
+        }
+      }
+
+      // 1. Buscar o crear el contacto en la tabla 'contacts'
       let contactId = null;
       const { data: existingContact } = await supabase
         .from('contacts')
@@ -48,12 +75,16 @@ export async function POST(request: NextRequest) {
       if (existingContact) {
         contactId = existingContact.id;
       } else {
+        const contactPayload: any = {
+          phone: phone,
+          name: senderName
+        };
+        if (defaultUserId) contactPayload.user_id = defaultUserId;
+        if (defaultAccountId) contactPayload.account_id = defaultAccountId;
+
         const { data: newContact, error: contactError } = await supabase
           .from('contacts')
-          .insert({
-            phone: phone,
-            name: senderName
-          })
+          .insert(contactPayload)
           .select('id')
           .single();
 
@@ -80,14 +111,18 @@ export async function POST(request: NextRequest) {
       if (existingConv) {
         conversationId = existingConv.id;
       } else {
+        const convPayload: any = {
+          contact_id: contactId,
+          status: 'open',
+          last_message_text: messageText,
+          last_message_at: new Date().toISOString()
+        };
+        if (defaultUserId) convPayload.user_id = defaultUserId;
+        if (defaultAccountId) convPayload.account_id = defaultAccountId;
+
         const { data: newConv, error: convError } = await supabase
           .from('conversations')
-          .insert({
-            contact_id: contactId,
-            status: 'open',
-            last_message_text: messageText,
-            last_message_at: new Date().toISOString()
-          })
+          .insert(convPayload)
           .select('id')
           .single();
 
@@ -114,7 +149,6 @@ export async function POST(request: NextRequest) {
         } else {
           console.log("✅ ¡Mensaje guardado y sincronizado con éxito en el CRM!");
           
-          // Actualizar el último mensaje de la conversación
           await supabase
             .from('conversations')
             .update({
