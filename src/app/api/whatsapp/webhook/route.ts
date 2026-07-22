@@ -29,117 +29,164 @@ export async function POST(request: NextRequest) {
     const message = value?.messages?.[0];
     const contactInfo = value?.contacts?.[0];
 
-    if (message) {
-      const phone = message.from;
-      const messageText = message.text?.body || '[Mensaje multimedia]';
-      const messageId = message.id;
-      const senderName = contactInfo?.profile?.name || phone;
+    if (!message) {
+      // Si no hay mensaje, responder OK igualmente
+      return new NextResponse('OK', { status: 200 });
+    }
 
-      console.log(`💬 Procesando mensaje de ${senderName} (${phone}): "${messageText}"`);
+    const phone = message.from;
+    const messageText = message.text?.body || '[Mensaje multimedia]';
+    const messageId = message.id;
+    const senderName = contactInfo?.profile?.name || phone;
 
-      // Obtener automáticamente un user_id válido desde Supabase Auth
-      let defaultUserId = null;
-      try {
-        const { data: authData } = await supabase.auth.admin.listUsers();
-        if (authData?.users && authData.users.length > 0) {
-          defaultUserId = authData.users[0].id;
-        }
-      } catch (e) {
-        console.error("⚠️ Error obteniendo usuario de Auth:", e);
+    console.log(`💬 Procesando mensaje de ${senderName} (${phone}): "${messageText}"`);
+
+    // --- Obtener un usuario de Supabase Auth (dueño del CRM) ---
+    let defaultUserId = null;
+    try {
+      const { data: authData } = await supabase.auth.admin.listUsers();
+      if (authData?.users && authData.users.length > 0) {
+        defaultUserId = authData.users[0].id;
       }
+    } catch (e) {
+      console.error("⚠️ Error obteniendo usuario de Auth:", e);
+    }
 
-      if (!defaultUserId) {
-        console.error("❌ No se encontró ningún usuario registrado en Supabase Auth.");
-        return new NextResponse('OK', { status: 200 });
-      }
+    if (!defaultUserId) {
+      console.error("❌ No se encontró ningún usuario registrado en Supabase Auth.");
+      return new NextResponse('OK', { status: 200 });
+    }
 
-      // 1. Buscar o crear el contacto en la tabla 'contacts'
-      let contactId = null;
-      const { data: existingContact } = await supabase
-        .from('contacts')
+    // --- Obtener el account_id asociado al usuario ---
+    let accountId = null;
+
+    // 1. Intentar obtener desde la tabla 'profiles' (o 'users_metadata', ajusta según tu esquema)
+    const { data: profile } = await supabase
+      .from('profiles')   // Cambia por el nombre de tu tabla de perfiles
+      .select('account_id')
+      .eq('user_id', defaultUserId)
+      .maybeSingle();
+
+    if (profile?.account_id) {
+      accountId = profile.account_id;
+    } else {
+      // 2. Si no tiene perfil, obtener la primera cuenta disponible
+      const { data: firstAccount } = await supabase
+        .from('accounts')  // Cambia por el nombre de tu tabla de cuentas
         .select('id')
-        .eq('phone', phone)
+        .limit(1)
         .maybeSingle();
 
-      if (existingContact) {
-        contactId = existingContact.id;
+      if (firstAccount?.id) {
+        accountId = firstAccount.id;
       } else {
-        const { data: newContact, error: contactError } = await supabase
-          .from('contacts')
-          .insert({
-            phone: phone,
-            name: senderName,
-            user_id: defaultUserId
-          })
+        // 3. Si no hay cuentas, crear una por defecto
+        const { data: newAccount, error: accError } = await supabase
+          .from('accounts')
+          .insert({ name: 'Cuenta por defecto' })  // Ajusta los campos necesarios
           .select('id')
           .single();
 
-        if (contactError) {
-          console.error("❌ Error al crear contacto:", contactError);
-        } else if (newContact) {
-          contactId = newContact.id;
+        if (accError) {
+          console.error("❌ Error al crear cuenta por defecto:", accError);
+        } else if (newAccount) {
+          accountId = newAccount.id;
         }
       }
+    }
 
-      if (!contactId) {
-        console.error("❌ No se pudo obtener o crear el contacto.");
-        return new NextResponse('OK', { status: 200 });
-      }
+    if (!accountId) {
+      console.error("❌ No se pudo obtener un account_id válido.");
+      return new NextResponse('OK', { status: 200 });
+    }
 
-      // 2. Buscar o crear la conversación en la tabla 'conversations'
-      let conversationId = null;
-      const { data: existingConv } = await supabase
-        .from('conversations')
+    // --- 1. Buscar o crear el contacto ---
+    let contactId = null;
+    const { data: existingContact } = await supabase
+      .from('contacts')
+      .select('id')
+      .eq('phone', phone)
+      .maybeSingle();
+
+    if (existingContact) {
+      contactId = existingContact.id;
+    } else {
+      const { data: newContact, error: contactError } = await supabase
+        .from('contacts')
+        .insert({
+          phone: phone,
+          name: senderName,
+          user_id: defaultUserId,
+          account_id: accountId   // ← AGREGAMOS account_id
+        })
         .select('id')
-        .eq('contact_id', contactId)
-        .maybeSingle();
+        .single();
 
-      if (existingConv) {
-        conversationId = existingConv.id;
+      if (contactError) {
+        console.error("❌ Error al crear contacto:", contactError);
+      } else if (newContact) {
+        contactId = newContact.id;
+      }
+    }
+
+    if (!contactId) {
+      console.error("❌ No se pudo obtener o crear el contacto.");
+      return new NextResponse('OK', { status: 200 });
+    }
+
+    // --- 2. Buscar o crear la conversación ---
+    let conversationId = null;
+    const { data: existingConv } = await supabase
+      .from('conversations')
+      .select('id')
+      .eq('contact_id', contactId)
+      .maybeSingle();
+
+    if (existingConv) {
+      conversationId = existingConv.id;
+    } else {
+      const { data: newConv, error: convError } = await supabase
+        .from('conversations')
+        .insert({
+          contact_id: contactId,
+          user_id: defaultUserId,
+          status: 'open',
+          last_message_text: messageText,
+          last_message_at: new Date().toISOString()
+        })
+        .select('id')
+        .single();
+
+      if (convError) {
+        console.error("❌ Error al crear conversación:", convError);
+      } else if (newConv) {
+        conversationId = newConv.id;
+      }
+    }
+
+    // --- 3. Guardar el mensaje ---
+    if (conversationId) {
+      const { error: msgError } = await supabase.from('messages').insert({
+        conversation_id: conversationId,
+        message_id: messageId,
+        content_text: messageText,
+        content_type: 'text',
+        status: 'received',
+        sender_type: 'contact'
+      });
+
+      if (msgError) {
+        console.error("❌ Error al guardar el mensaje en Supabase:", msgError);
       } else {
-        const { data: newConv, error: convError } = await supabase
+        console.log("✅ ¡Mensaje guardado y sincronizado con éxito en el CRM!");
+        
+        await supabase
           .from('conversations')
-          .insert({
-            contact_id: contactId,
-            user_id: defaultUserId,
-            status: 'open',
+          .update({
             last_message_text: messageText,
             last_message_at: new Date().toISOString()
           })
-          .select('id')
-          .single();
-
-        if (convError) {
-          console.error("❌ Error al crear conversación:", convError);
-        } else if (newConv) {
-          conversationId = newConv.id;
-        }
-      }
-
-      // 3. Guardar el mensaje en la tabla 'messages'
-      if (conversationId) {
-        const { error: msgError } = await supabase.from('messages').insert({
-          conversation_id: conversationId,
-          message_id: messageId,
-          content_text: messageText,
-          content_type: 'text',
-          status: 'received',
-          sender_type: 'contact'
-        });
-
-        if (msgError) {
-          console.error("❌ Error al guardar el mensaje en Supabase:", msgError);
-        } else {
-          console.log("✅ ¡Mensaje guardado y sincronizado con éxito en el CRM!");
-          
-          await supabase
-            .from('conversations')
-            .update({
-              last_message_text: messageText,
-              last_message_at: new Date().toISOString()
-            })
-            .eq('id', conversationId);
-        }
+          .eq('id', conversationId);
       }
     }
 
